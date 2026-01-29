@@ -7,13 +7,12 @@ import streamlit as st
 import pandas as pd
 from utils.data_state import DataState
 from utils.streamlit_helpers import (
-    display_message, display_data_profile, display_sidebar_info,
-    display_example_queries, show_welcome_message
+    display_sidebar_info, display_example_queries, show_welcome_message
 )
+from utils.export import build_export_zip
 from agents.data_agent import DataAgent
 from agents.manager_agent import ManagerAgent
 from config import PAGE_TITLE, PAGE_ICON, LAYOUT
-import io
 
 
 # Page configuration
@@ -30,6 +29,12 @@ if 'messages' not in st.session_state:
 
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
+
+if 'show_plot_dialog' not in st.session_state:
+    st.session_state.show_plot_dialog = False
+
+if 'latest_plots' not in st.session_state:
+    st.session_state.latest_plots = []
 
 if 'manager_agent' not in st.session_state:
     with st.spinner("Initializing AI agent..."):
@@ -50,11 +55,9 @@ uploaded_file = st.sidebar.file_uploader(
 
 # Handle file upload
 if uploaded_file is not None:
-    # Check if this is a new file
     if not st.session_state.data_loaded or st.session_state.get('last_file_name') != uploaded_file.name:
         try:
             with st.spinner("Loading data..."):
-                # Read file based on extension
                 file_extension = uploaded_file.name.split('.')[-1].lower()
 
                 if file_extension == 'csv':
@@ -67,22 +70,18 @@ if uploaded_file is not None:
                     st.error(f"Unsupported file format: {file_extension}")
                     st.stop()
 
-                # Load into data state
                 state = DataState()
                 state.load_data(df, uploaded_file.name, uploaded_file.name)
 
-                # Profile the data
                 profile = st.session_state.data_agent.analyze(df)
 
-                # Update session state
                 st.session_state.data_loaded = True
                 st.session_state.last_file_name = uploaded_file.name
 
-                # Add system message about data loading
                 st.session_state.messages.append({
                     "role": "assistant",
-                    "content": f"✅ Successfully loaded **{uploaded_file.name}**\n\n{profile}",
-                    "figures": []
+                    "content": f"Successfully loaded **{uploaded_file.name}**\n\n{profile}",
+                    "plots": [],
                 })
 
                 st.rerun()
@@ -99,27 +98,81 @@ display_sidebar_info(data_info)
 # Display example queries
 display_example_queries()
 
+# Sidebar: Export
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📥 Export Results")
+
+if st.session_state.messages:
+    zip_bytes = build_export_zip(st.session_state.messages)
+    file_label = st.session_state.get('last_file_name', 'analysis')
+    st.sidebar.download_button(
+        label="Download Report (ZIP)",
+        data=zip_bytes,
+        file_name=f"{file_label}_report.zip",
+        mime="application/zip",
+    )
+else:
+    st.sidebar.info("Nothing to export yet.")
+
+# Footer
+st.sidebar.markdown("---")
+st.sidebar.markdown("Built with Streamlit, LangChain, and Ollama")
+st.sidebar.markdown("Model: qwen3:latest")
+
+
+# Plot dialog popup
+@st.dialog("📊 Visualization", width="large")
+def show_plot_popup(plot_images):
+    for img_bytes in plot_images:
+        st.image(img_bytes, use_container_width=True)
+
+
+# Check if we need to show the plot dialog
+if st.session_state.show_plot_dialog and st.session_state.latest_plots:
+    st.session_state.show_plot_dialog = False
+    show_plot_popup(st.session_state.latest_plots)
+
+
 # Main area
 if not st.session_state.data_loaded:
-    # Show welcome message if no data loaded
     show_welcome_message()
 else:
+    # Table preview
+    state = DataState()
+    df = state.get_dataframe()
+
+    with st.expander(f"🗂️ Table Preview  —  {df.shape[0]} rows × {df.shape[1]} columns", expanded=False):
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            preview_rows = st.slider("Rows to show", min_value=5, max_value=min(200, len(df)), value=10, step=5)
+        with col2:
+            selected_cols = st.multiselect("Filter columns", options=df.columns.tolist(), default=df.columns.tolist())
+
+        if selected_cols:
+            st.dataframe(df[selected_cols].head(preview_rows), use_container_width=True, height=350)
+        else:
+            st.info("Select at least one column to preview.")
+
+    st.markdown("---")
+
     # Display chat history
     for message in st.session_state.messages:
-        display_message(message)
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+            # Show inline plots stored in message history
+            for img_bytes in message.get("plots", []):
+                st.image(img_bytes, use_container_width=True)
 
     # Chat input
     user_input = st.chat_input("Ask about your data...")
 
     if user_input:
-        # Add user message to chat
+        # Display user message
         st.session_state.messages.append({
             "role": "user",
             "content": user_input,
-            "figures": []
+            "plots": [],
         })
-
-        # Display user message
         with st.chat_message("user"):
             st.markdown(user_input)
 
@@ -128,27 +181,24 @@ else:
             with st.spinner("Thinking..."):
                 response = st.session_state.manager_agent.invoke(user_input)
 
-            # Display text response
             st.markdown(response["text"])
 
-            # Display figures if any
-            if response["figures"]:
-                for fig_type, fig in response["figures"]:
-                    if fig_type == "matplotlib":
-                        st.pyplot(fig)
-                        import matplotlib.pyplot as plt
-                        plt.close(fig)
-                    elif fig_type == "plotly":
-                        st.plotly_chart(fig, use_container_width=True)
+            # Collect plot images
+            plot_images = [fig_data for _, fig_data in response["figures"]]
 
-        # Add assistant response to chat history
+            # Show plots inline right below the response
+            for img_bytes in plot_images:
+                st.image(img_bytes, use_container_width=True)
+
+        # Save to message history (with plots)
         st.session_state.messages.append({
             "role": "assistant",
             "content": response["text"],
-            "figures": response["figures"]
+            "plots": plot_images,
         })
 
-# Footer
-st.sidebar.markdown("---")
-st.sidebar.markdown("Built with Streamlit, LangChain, and Ollama")
-st.sidebar.markdown("Model: qwen3:8b")
+        # Trigger popup dialog if there are plots
+        if plot_images:
+            st.session_state.latest_plots = plot_images
+            st.session_state.show_plot_dialog = True
+            st.rerun()

@@ -8,8 +8,6 @@ from langchain_ollama import ChatOllama
 from langchain_classic.agents import AgentExecutor, initialize_agent, AgentType
 from tools.tool_registry import get_all_tools
 from config import OLLAMA_MODEL, OLLAMA_TEMPERATURE
-import matplotlib.pyplot as plt
-import plotly.graph_objects as go
 
 
 class ManagerAgent:
@@ -28,6 +26,16 @@ class ManagerAgent:
     def _create_agent_executor(self):
         """Create the agent with tools"""
 
+        # System prefix for the agent
+        system_prefix = """You are a data analysis assistant. You help users explore and analyze their uploaded dataset using the available tools.
+
+IMPORTANT RULES:
+1. If the user's question is ambiguous or could refer to multiple columns/operations, ask the user to clarify before calling a tool. For example, if they say "what are the 3 species" but you're not sure which column they mean, first use list_columns or get_data_overview to check, then answer based on the data.
+2. When a tool requires no input, pass an empty string as input.
+3. Always check available columns before making assumptions about column names.
+4. Provide clear, concise answers based on tool outputs.
+5. When the user asks about unique values or categories in a column, use get_column_info with the column name."""
+
         # Create agent using initialize_agent
         agent_executor = initialize_agent(
             tools=self.tools,
@@ -36,7 +44,8 @@ class ManagerAgent:
             verbose=True,
             handle_parsing_errors=True,
             max_iterations=5,
-            early_stopping_method="generate"
+            early_stopping_method="generate",
+            agent_kwargs={"prefix": system_prefix}
         )
 
         return agent_executor
@@ -52,11 +61,17 @@ class ManagerAgent:
             dict with 'text' and 'figures' keys
         """
         try:
+            from utils.data_state import DataState
+
+            # Clear any previously pending figures
+            state = DataState()
+            state.pending_figures = []
+
             # Execute the agent
             result = self.agent_executor.invoke({"input": user_input})
 
-            # Extract figures from the intermediate steps
-            figures = self._extract_figures(result)
+            # Retrieve figures stored by visualization tools during execution
+            figures = state.pop_figures()
 
             return {
                 "text": result.get("output", "No response generated."),
@@ -67,31 +82,3 @@ class ManagerAgent:
                 "text": f"Error processing query: {str(e)}",
                 "figures": []
             }
-
-    def _extract_figures(self, result: dict) -> list:
-        """
-        Extract matplotlib or plotly figures from agent execution result.
-
-        Args:
-            result: Agent execution result
-
-        Returns:
-            List of figure objects
-        """
-        figures = []
-
-        # Check intermediate steps for figures
-        if "intermediate_steps" in result:
-            for step in result["intermediate_steps"]:
-                if len(step) >= 2:
-                    observation = step[1]  # The tool output
-
-                    # Check if it's a matplotlib figure
-                    if isinstance(observation, plt.Figure):
-                        figures.append(("matplotlib", observation))
-
-                    # Check if it's a plotly figure
-                    elif isinstance(observation, go.Figure):
-                        figures.append(("plotly", observation))
-
-        return figures

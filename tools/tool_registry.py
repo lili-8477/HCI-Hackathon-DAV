@@ -18,17 +18,17 @@ def get_all_tools():
         # Data Exploration Tools
         Tool(
             name="get_data_overview",
-            func=data_exploration.get_data_overview,
+            func=lambda _="": data_exploration.get_data_overview(),
             description="Get an overview of the loaded dataset including shape, columns, and data types. Use this to understand the structure of the data. No input required."
         ),
         Tool(
             name="check_missing_values",
-            func=data_exploration.check_missing_values,
+            func=lambda _="": data_exploration.check_missing_values(),
             description="Check for missing values in the dataset. Shows count and percentage of missing values for each column. No input required."
         ),
         Tool(
             name="get_summary_statistics",
-            func=data_exploration.get_summary_statistics,
+            func=lambda _="": data_exploration.get_summary_statistics(),
             description="Get descriptive statistics (mean, std, min, max, quartiles) for all numeric columns in the dataset. No input required."
         ),
         Tool(
@@ -38,14 +38,14 @@ def get_all_tools():
         ),
         Tool(
             name="list_columns",
-            func=data_exploration.list_columns,
+            func=lambda _="": data_exploration.list_columns(),
             description="List all column names in the dataset. No input required."
         ),
 
         # Statistical Analysis Tools
         Tool(
             name="calculate_correlation",
-            func=statistical_analysis.calculate_correlation,
+            func=lambda method="pearson": statistical_analysis.calculate_correlation(method if method.strip() else "pearson"),
             description="Calculate correlation matrix for all numeric columns. Input: method ('pearson', 'spearman', or 'kendall'). Default is 'pearson' if no input provided."
         ),
         Tool(
