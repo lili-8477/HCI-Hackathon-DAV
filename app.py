@@ -13,7 +13,8 @@ from utils.streamlit_helpers import (
 )
 from utils.export import build_export_zip
 from agents.data_agent import DataAgent
-from agents.manager_agent import ManagerAgent
+# from agents.manager_agent import ManagerAgent  # Legacy agent
+from agents.langgraph_manager import LangGraphManager  # Graph agent
 from config import PAGE_TITLE, PAGE_ICON, LAYOUT
 
 # Initialize LangSmith tracing (if configured)
@@ -81,7 +82,7 @@ if 'latest_plots' not in st.session_state:
 
 if 'manager_agent' not in st.session_state:
     with st.spinner("Initializing AI agent..."):
-        st.session_state.manager_agent = ManagerAgent()
+        st.session_state.manager_agent = LangGraphManager()
 
 if 'data_agent' not in st.session_state:
     st.session_state.data_agent = DataAgent()
