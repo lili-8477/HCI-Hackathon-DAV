@@ -1,0 +1,19 @@
+# LangChain
+langchain>=0.3.20
+langchain-community>=0.3.19
+langchain-core>=0.3.35
+langchain-ollama>=0.3.0
+
+# UI
+streamlit==1.40.0
+
+# Data & Visualization
+pandas==2.2.3
+numpy==1.26.4
+matplotlib==3.9.3
+seaborn==0.13.2
+plotly==5.24.1
+
+# Utilities
+python-dotenv==1.0.1
+pydantic==2.10.5
