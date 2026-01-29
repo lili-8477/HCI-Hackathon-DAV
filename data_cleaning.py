@@ -16,17 +16,17 @@ def load_data(file_path):
         df = pd.read_json(file_path)
     else:
         raise ValueError("Unsupported file type. Use CSV, Excel, or JSON.")
-    print(f"Loaded {df.shape[0]} rows, {df.shape[1]} columns")
+    print(f"Loaded {df.shape[0]} rows and {df.shape[1]} columns.")
     return df
 
 def preprocess_data(df):
-    """Handle missing values and duplicates interactively."""
+    """Remove duplicates and handle missing values interactively."""
     df = df.drop_duplicates()
     na_counts = df.isna().sum()
     if na_counts.sum() > 0:
         print("Columns with missing values:\n", na_counts[na_counts > 0])
-        response = input("Fill missing values automatically? (y/n): ")
-        if response.lower() == "y":
+        response = input("Fill missing values automatically? (y/n): ").lower()
+        if response == "y":
             numeric_cols = df.select_dtypes(include="number").columns
             categorical_cols = df.select_dtypes(include="object").columns
             df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
@@ -34,7 +34,7 @@ def preprocess_data(df):
     return df
 
 def select_columns(df, col_type="numeric"):
-    """Let user filter columns by type."""
+    """Let user select columns by type."""
     if col_type == "numeric":
         cols = df.select_dtypes(include="number").columns.tolist()
     else:
@@ -43,5 +43,4 @@ def select_columns(df, col_type="numeric"):
     selected = input("Enter comma-separated columns to use (or 'all'): ")
     if selected.lower() == "all":
         return cols
-    else:
-        return [c.strip() for c in selected.split(",")]
+    return [c.strip() for c in selected.split(",")]
