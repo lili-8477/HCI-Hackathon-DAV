@@ -4,7 +4,6 @@ Data Cleaning Module
 - Handles duplicates
 - Handles missing values interactively
 """
-
 import pandas as pd
 
 def load_data(file_path):
@@ -20,31 +19,29 @@ def load_data(file_path):
     print(f"Loaded {df.shape[0]} rows, {df.shape[1]} columns")
     return df
 
-def handle_missing(df):
-    """Interactively handle missing values."""
+def preprocess_data(df):
+    """Handle missing values and duplicates interactively."""
+    df = df.drop_duplicates()
     na_counts = df.isna().sum()
     if na_counts.sum() > 0:
-        print("\nColumns with missing values:")
-        print(na_counts[na_counts > 0])
-        response = input("Do you want to fill missing values automatically? (y/n) ")
+        print("Columns with missing values:\n", na_counts[na_counts > 0])
+        response = input("Fill missing values automatically? (y/n): ")
         if response.lower() == "y":
             numeric_cols = df.select_dtypes(include="number").columns
             categorical_cols = df.select_dtypes(include="object").columns
             df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
             df[categorical_cols] = df[categorical_cols].fillna("Unknown")
-            print("Missing values filled automatically")
-        else:
-            print("Missing values left as NA")
     return df
 
-def preprocess_data(df):
-    """Remove duplicates and handle missing values."""
-    df = df.drop_duplicates()
-    df = handle_missing(df)
-    return df
-
-if __name__ == "__main__":
-    file_path = input("Enter data file path: ")
-    df = load_data(file_path)
-    df = preprocess_data(df)
-    print("Data cleaning complete.")
+def select_columns(df, col_type="numeric"):
+    """Let user filter columns by type."""
+    if col_type == "numeric":
+        cols = df.select_dtypes(include="number").columns.tolist()
+    else:
+        cols = df.select_dtypes(include="object").columns.tolist()
+    print(f"Available {col_type} columns: {cols}")
+    selected = input("Enter comma-separated columns to use (or 'all'): ")
+    if selected.lower() == "all":
+        return cols
+    else:
+        return [c.strip() for c in selected.split(",")]
