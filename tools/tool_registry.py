@@ -92,6 +92,13 @@ def get_all_tools():
         ),
     ]
 
+    # Add RAG tools for code generation and memory
+    try:
+        from .rag_tools import get_rag_tools
+        tools.extend(get_rag_tools())
+    except ImportError as e:
+        print(f"Warning: RAG tools not available: {e}")
+
     return tools
 
 

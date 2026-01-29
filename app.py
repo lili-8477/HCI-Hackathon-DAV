@@ -16,6 +16,13 @@ from agents.data_agent import DataAgent
 from agents.manager_agent import ManagerAgent
 from config import PAGE_TITLE, PAGE_ICON, LAYOUT
 
+# Initialize LangSmith tracing (if configured)
+try:
+    from utils.langsmith_config import setup_langsmith, get_langsmith_status
+    langsmith_enabled = setup_langsmith("HCI-Hackathon-DAV")
+except ImportError:
+    langsmith_enabled = False
+
 
 # Page configuration
 st.set_page_config(
