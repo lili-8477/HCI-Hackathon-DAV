@@ -21,47 +21,102 @@ class DataAgent:
         """
         summary = []
 
-        # Basic info
-        summary.append("=" * 60)
-        summary.append("DATA PROFILE")
-        summary.append("=" * 60)
+        # Header with badges
+        summary.append("### 📊 Data Profile")
+        summary.append("")
+        
+        # Quick stats in a nice format
+        summary.append(f"**Dataset Shape:** `{df.shape[0]:,}` rows × `{df.shape[1]}` columns")
+        summary.append("")
 
-        summary.append(f"\nDataset Shape: {df.shape[0]} rows × {df.shape[1]} columns")
+        # Memory usage
+        memory_mb = df.memory_usage(deep=True).sum() / 1024**2
+        summary.append(f"**Memory Usage:** `{memory_mb:.2f} MB`")
+        summary.append("")
+        
+        summary.append("---")
+        summary.append("")
 
-        # Column list
-        summary.append(f"\nColumns ({len(df.columns)}):")
-        summary.append(", ".join(df.columns.tolist()))
+        # Column list in a clean format
+        summary.append(f"#### 📋 Columns ({len(df.columns)})")
+        summary.append("")
+        
+        # Group columns by type
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        cat_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        datetime_cols = df.select_dtypes(include=['datetime']).columns.tolist()
+        
+        if numeric_cols:
+            summary.append(f"**🔢 Numeric ({len(numeric_cols)}):** {', '.join([f'`{col}`' for col in numeric_cols])}")
+        if cat_cols:
+            summary.append(f"**📝 Categorical ({len(cat_cols)}):** {', '.join([f'`{col}`' for col in cat_cols])}")
+        if datetime_cols:
+            summary.append(f"**📅 Datetime ({len(datetime_cols)}):** {', '.join([f'`{col}`' for col in datetime_cols])}")
+        
+        summary.append("")
+        summary.append("---")
+        summary.append("")
 
-        # Data types
-        summary.append(f"\nData Types:")
-        summary.append(df.dtypes.to_string())
-
-        # Missing values
+        # Missing values with better formatting
         missing = df.isnull().sum()
         if missing.sum() > 0:
-            summary.append(f"\nMissing Values:")
-            missing_df = pd.DataFrame({
-                'Count': missing[missing > 0],
-                'Percentage': (missing[missing > 0] / len(df) * 100).round(2)
-            })
-            summary.append(missing_df.to_string())
+            summary.append("#### ⚠️ Missing Values")
+            summary.append("")
+            missing_data = []
+            for col in missing[missing > 0].index:
+                count = missing[col]
+                pct = (count / len(df) * 100)
+                missing_data.append(f"- **`{col}`**: {count:,} missing ({pct:.1f}%)")
+            summary.extend(missing_data)
         else:
-            summary.append(f"\nMissing Values: None")
+            summary.append("#### ✅ Data Quality")
+            summary.append("")
+            summary.append("**No missing values detected!**")
+        
+        summary.append("")
+        summary.append("---")
+        summary.append("")
 
-        # Summary statistics
-        numeric_cols = df.select_dtypes(include=['number']).columns
+        # Summary statistics for numeric columns
         if len(numeric_cols) > 0:
-            summary.append(f"\nSummary Statistics (Numeric Columns):")
-            summary.append(df[numeric_cols].describe().to_string())
+            summary.append("#### 📈 Summary Statistics (Numeric)")
+            summary.append("")
+            
+            stats_df = df[numeric_cols].describe().round(2)
+            
+            # Convert to markdown table
+            summary.append("| Statistic | " + " | ".join([f"{col}" for col in stats_df.columns]) + " |")
+            summary.append("|" + "---|" * (len(stats_df.columns) + 1))
+            
+            for idx in stats_df.index:
+                row_data = [f"{stats_df.loc[idx, col]:,.2f}" if not pd.isna(stats_df.loc[idx, col]) else "N/A" 
+                           for col in stats_df.columns]
+                summary.append(f"| **{idx}** | " + " | ".join(row_data) + " |")
+            
+            summary.append("")
 
-        # Categorical columns info
-        cat_cols = df.select_dtypes(include=['object', 'category']).columns
+        # Categorical columns info with better formatting
         if len(cat_cols) > 0:
-            summary.append(f"\nCategorical Columns ({len(cat_cols)}):")
-            for col in cat_cols:
+            summary.append("#### 🏷️ Categorical Insights")
+            summary.append("")
+            
+            for col in cat_cols[:10]:  # Limit to first 10 to avoid cluttering
                 n_unique = df[col].nunique()
-                summary.append(f"  {col}: {n_unique} unique values")
+                top_value = df[col].mode()[0] if len(df[col].mode()) > 0 else "N/A"
+                top_count = (df[col] == top_value).sum()
+                top_pct = (top_count / len(df) * 100)
+                
+                summary.append(f"**`{col}`**")
+                summary.append(f"  - Unique values: `{n_unique:,}`")
+                summary.append(f"  - Most common: `{top_value}` ({top_count:,} occurrences, {top_pct:.1f}%)")
+                summary.append("")
+            
+            if len(cat_cols) > 10:
+                summary.append(f"*...and {len(cat_cols) - 10} more categorical columns*")
+                summary.append("")
 
-        summary.append("\n" + "=" * 60)
+        summary.append("---")
+        summary.append("")
+        summary.append("💡 **Ready to explore!** Ask me questions about your data.")
 
         return "\n".join(summary)

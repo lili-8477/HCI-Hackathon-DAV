@@ -5,6 +5,8 @@ Main Streamlit application entry point.
 
 import streamlit as st
 import pandas as pd
+import base64
+from pathlib import Path
 from utils.data_state import DataState
 from utils.streamlit_helpers import (
     display_sidebar_info, display_example_queries, show_welcome_message
@@ -22,6 +24,40 @@ st.set_page_config(
     layout=LAYOUT,
     initial_sidebar_state="expanded"
 )
+
+# Load custom CSS
+def load_css():
+    css_file = Path(__file__).parent / "assets" / "style.css"
+    if css_file.exists():
+        with open(css_file) as f:
+            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
+load_css()
+
+# Display logo and header
+def display_header():
+    logo_path = Path(__file__).parent / "assets" / "logo.png"
+    if logo_path.exists():
+        with open(logo_path, "rb") as f:
+            logo_base64 = base64.b64encode(f.read()).decode()
+        
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; padding: 1.5rem 0; margin-bottom: 1rem;">
+            <img src="data:image/png;base64,{logo_base64}" style="width: 80px; height: 80px; margin-right: 1.5rem; filter: drop-shadow(0 4px 12px rgba(0, 180, 216, 0.4));">
+            <div>
+                <h1 style="margin: 0; font-size: 2.5rem; background: linear-gradient(135deg, #00B4D8 0%, #F7B801 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                    Data Analysis & Visualization Assistant
+                </h1>
+                <p style="margin: 0.3rem 0 0 0; color: #B8B8B8; font-size: 1rem;">
+                    AI-Powered Analytics Platform
+                </p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.title("📊 Data Analysis & Visualization Assistant")
+
+display_header()
 
 # Initialize session state
 if 'messages' not in st.session_state:
@@ -116,8 +152,19 @@ else:
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.markdown("Built with Streamlit, LangChain, and Ollama")
-st.sidebar.markdown("Model: qwen3:latest")
+st.sidebar.markdown("""
+<div style="text-align: center; padding: 1rem 0;">
+    <p style="color: #B8B8B8; font-size: 0.85rem; margin: 0.3rem 0;">
+        ⚡ Powered by
+    </p>
+    <p style="color: #00B4D8; font-weight: 600; margin: 0.3rem 0;">
+        Streamlit • LangChain • Ollama
+    </p>
+    <p style="color: #B8B8B8; font-size: 0.8rem; margin: 0.3rem 0;">
+        🤖 Model: <span style="color: #F7B801;">qwen3:8b</span>
+    </p>
+</div>
+""", unsafe_allow_html=True)
 
 
 # Plot dialog popup
