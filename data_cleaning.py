@@ -4,6 +4,7 @@ Data Cleaning Module
 - Handles duplicates
 - Handles missing values interactively
 """
+
 import pandas as pd
 
 def load_data(file_path):
