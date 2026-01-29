@@ -9,21 +9,22 @@ Data Visualization Module (Interactive + Save + Zoom)
 - Zoom/pan with Plotly
 """
 
-import seaborn as sns
 import matplotlib.pyplot as plt
+import seaborn as sns
 import plotly.express as px
+import pandas as pd
 
+# --- Interactive confirmation ---
 def confirm_and_run(func, *args, **kwargs):
-    """Show function and args before execution for user approval."""
+    """Show function and args before execution for user confirmation."""
     print("\n=== Pending Tool Execution ===")
     print(f"Function: {func.__name__}")
     print(f"Arguments: {args if args else ''} {kwargs if kwargs else ''}")
     proceed = input("Run this tool? (y/n): ").lower()
     if proceed == "y":
         return func(*args, **kwargs)
-    else:
-        print("Skipped.")
-        return None
+    print("Skipped.")
+    return None
 
 # --- Continuous ---
 def plot_histogram(df, col, color="skyblue", ablines=None, save=False):
@@ -64,7 +65,6 @@ def plot_scatter(df, x_col, y_col, color_col=None, save=False):
         plt.savefig(f"{x_col}_vs_{y_col}_scatter.png")
         print(f"Saved: {x_col}_vs_{y_col}_scatter.png")
     plt.show()
-
     fig = px.scatter(df, x=x_col, y=y_col, color=color_col)
     fig.show()
 
@@ -90,7 +90,7 @@ def plot_bar(df, col, agg_col=None, agg_func="count", color="orange", save=False
         fig = px.bar(df[col].value_counts().reset_index(), x='index', y=col, color_discrete_sequence=[color])
         fig.show()
 
-# --- Correlation ---
+# --- Correlation Heatmap ---
 def correlation_heatmap(df, save=False):
     numeric_cols = df.select_dtypes(include="number").columns
     if len(numeric_cols) < 2:
@@ -98,7 +98,6 @@ def correlation_heatmap(df, save=False):
         return
     plt.figure(figsize=(10,8))
     sns.heatmap(df[numeric_cols].corr(), annot=True, cmap="coolwarm")
-    plt.title("Correlation Heatmap")
     if save:
         plt.savefig("correlation_heatmap.png")
         print("Saved: correlation_heatmap.png")
@@ -107,20 +106,7 @@ def correlation_heatmap(df, save=False):
     fig.show()
 
 # --- PCA ---
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-import pandas as pd
-
-def plot_pca(df, n_components=2, save=False):
-    numeric_cols = df.select_dtypes(include="number").columns
-    if len(numeric_cols) < 2:
-        print("Not enough numeric columns for PCA")
-        return
-    scaler = StandardScaler()
-    scaled = scaler.fit_transform(df[numeric_cols])
-    pca = PCA(n_components=n_components)
-    components = pca.fit_transform(scaled)
-    pca_df = pd.DataFrame(components, columns=[f"PC{i+1}" for i in range(n_components)])
+def plot_pca(pca_df, save=False):
     plt.figure()
     sns.scatterplot(x='PC1', y='PC2', data=pca_df)
     plt.title("PCA Plot")
@@ -130,4 +116,16 @@ def plot_pca(df, n_components=2, save=False):
     plt.show()
     fig = px.scatter(pca_df, x='PC1', y='PC2', title="PCA Scatter Plot (Interactive)")
     fig.show()
-    return pca_df
+
+# --- Gene-style Heatmap ---
+def gene_heatmap(df, save=False):
+    numeric_cols = df.select_dtypes(include="number").columns
+    if len(numeric_cols) < 2:
+        print("Not enough numeric columns for gene-style heatmap")
+        return
+    data = df[numeric_cols].T
+    sns.clustermap(data, cmap="vlag", standard_scale=1, method="average", metric="euclidean", figsize=(10,10))
+    if save:
+        plt.savefig("gene_heatmap.png")
+        print("Saved: gene_heatmap.png")
+    plt.show()
