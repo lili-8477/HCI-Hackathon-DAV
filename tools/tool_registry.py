@@ -1,82 +1,204 @@
+#!/usr/bin/env python3
 """
-Tool Registry
-Registers all cleaning, analysis, and visualization tools for the LangChain agent.
+Tool Registry for Data Processing Pipeline
+Exposes DataCleaner, DataAnalyzer, DataVisualizer in a discoverable, uniform way
+Designed for LLM agents, Streamlit apps, modular pipelines, auto-documentation
 """
 
-from langchain_core.tools import Tool
-from . import data_cleaning as dc
-from . import data_analysis as da
-from . import data_visualization as dv
+from typing import Dict, Any, List, Optional, Callable, Union
+from dataclasses import dataclass
+import inspect
+import pandas as pd
 
-def confirm(func, *args, **kwargs):
-    return dv.confirm_and_run(func, *args, **kwargs)
+# ─── Import your three main classes ──────────────────────────────────────────
+from data_cleaner import DataCleaner     # assuming file names / module structure
+from data_analyzer import DataAnalyzer
+from data_visualizer import DataVisualizer
 
-def get_all_tools():
-    tools = [
-        Tool(
-            name="load_data",
-            func=lambda path: confirm(dc.load_data, path),
-            description="Load dataset from CSV, Excel, or JSON. Input: file path."
-        ),
-        Tool(
-            name="preprocess_data",
-            func=lambda df: confirm(dc.preprocess_data, df),
-            description="Remove duplicates and handle missing values interactively. Input: DataFrame."
-        ),
-        Tool(
-            name="select_columns",
-            func=lambda df_coltype: confirm(dc.select_columns, df_coltype[0], col_type=df_coltype[1] if len(df_coltype)>1 else "numeric"),
-            description="Select columns by type. Input: [DataFrame, 'numeric'/'categorical']"
-        ),
-        Tool(
-            name="summary_statistics",
-            func=lambda df_cols=None: confirm(da.summary_stats, df_cols[0], columns=df_cols[1] if len(df_cols)>1 else None),
-            description="Return summary statistics. Input: [DataFrame, optional columns]"
-        ),
-        Tool(
-            name="correlation_matrix",
-            func=lambda df_method=None: confirm(da.compute_correlation, df_method[0], method=df_method[1] if len(df_method)>1 else "pearson"),
-            description="Correlation matrix. Input: [DataFrame, method]"
-        ),
-        Tool(
-            name="compute_pca",
-            func=lambda df_ncomp=None: confirm(da.compute_pca, df_ncomp[0], n_components=df_ncomp[1] if len(df_ncomp)>1 else 2),
-            description="Compute PCA. Input: [DataFrame, n_components]"
-        ),
-        Tool(
-            name="plot_histogram",
-            func=lambda args: confirm(dv.plot_histogram, args[0], args[1], color=args[2] if len(args)>2 else "skyblue", ablines=args[3] if len(args)>3 else None, save=args[4] if len(args)>4 else False),
-            description="Histogram/KDE plot. Input: [DataFrame, column, color, ablines, save]"
-        ),
-        Tool(
-            name="plot_boxplot",
-            func=lambda args: confirm(dv.plot_boxplot, args[0], args[1], color=args[2] if len(args)>2 else "skyblue", ablines=args[3] if len(args)>3 else None, save=args[4] if len(args)>4 else False),
-            description="Boxplot. Input: [DataFrame, column, color, ablines, save]"
-        ),
-        Tool(
-            name="plot_scatter",
-            func=lambda args: confirm(dv.plot_scatter, args[0], args[1], args[2] if len(args)>2 else None, save=args[3] if len(args)>3 else False),
-            description="Scatter plot. Input: [DataFrame, x_col, y_col, color_col, save]"
-        ),
-        Tool(
-            name="plot_bar",
-            func=lambda args: confirm(dv.plot_bar, args[0], args[1] if len(args)>1 else None, agg_func=args[2] if len(args)>2 else "count", color=args[3] if len(args)>3 else "orange", save=args[4] if len(args)>4 else False),
-            description="Bar plot. Input: [DataFrame, col, value_col, agg_func, color, save]"
-        ),
-        Tool(
-            name="correlation_heatmap",
-            func=lambda args: confirm(dv.correlation_heatmap, args[0], save=args[1] if len(args)>1 else False),
-            description="Correlation heatmap. Input: [DataFrame, save]"
-        ),
-        Tool(
-            name="plot_pca",
-            func=lambda args: confirm(dv.plot_pca, da.compute_pca(args[0], n_components=args[1] if len(args)>1 else 2), save=args[2] if len(args)>2 else False),
-            description="Compute PCA and plot. Input: [DataFrame, n_components, save]"
-        ),
-        Tool(
-            name="gene_heatmap",
-            func=lambda args: confirm(dv.gene_heatmap, args[0], save=args[1] if len(args)>1 else False),
-            description="Gene-style heatmap with clustering. Input: [DataFrame, save]"
-        ),
-    ]
-    return tools
+
+@dataclass
+class ToolMetadata:
+    """Standardized metadata for each exposed method"""
+    category: str                   # "cleaning", "analysis", "visualization"
+    name: str                       # method name
+    description: str                # first line of docstring or custom
+    full_doc: str                   # complete docstring
+    signature: inspect.Signature
+    required_args: List[str]
+    optional_args: List[str]
+    returns: str                    # short description of return type
+    instance_required: bool = True  # whether you need an instance first
+
+
+class DataToolRegistry:
+    """
+    Central registry of data processing tools based on:
+      • DataCleaner
+      • DataAnalyzer
+      • DataVisualizer
+    """
+    
+    def __init__(self):
+        self.tools: Dict[str, ToolMetadata] = {}
+        self._register_all()
+        
+    def _register_tool(self, category: str, func: Callable, instance_required: bool = True):
+        """Register one method with metadata"""
+        name = func.__name__
+        
+        doc = (func.__doc__ or "").strip()
+        first_line = doc.split("\n")[0].strip() if doc else "No description"
+        
+        sig = inspect.signature(func)
+        
+        required = []
+        optional = []
+        for param in sig.parameters.values():
+            if param.default is param.empty and param.name != "self":
+                required.append(param.name)
+            elif param.name != "self":
+                optional.append(param.name)
+                
+        returns = "DataFrame" if "-> pd.DataFrame" in str(func.__annotations__) else "various"
+        
+        meta = ToolMetadata(
+            category=category,
+            name=name,
+            description=first_line,
+            full_doc=doc,
+            signature=sig,
+            required_args=required,
+            optional_args=optional,
+            returns=returns,
+            instance_required=instance_required
+        )
+        
+        key = f"{category}.{name}"
+        self.tools[key] = meta
+    
+    def _register_all(self):
+        """Register selected high-value / commonly used methods"""
+        
+        # ─── Cleaning ────────────────────────────────────────────────────────────
+        cleaner_methods = [
+            "load_data",
+            "get_data_quality_report",
+            "detect_duplicates",
+            "remove_duplicates",
+            "handle_missing_values",
+            "detect_outliers",
+            "handle_outliers",
+            "infer_and_convert_types",
+            "standardize_column_names",
+            "remove_constant_columns",
+            "clean_text_columns",
+            "get_cleaning_summary",
+            "export_cleaned_data",
+            "export_for_llm",
+        ]
+        
+        for meth_name in cleaner_methods:
+            meth = getattr(DataCleaner, meth_name, None)
+            if meth and callable(meth):
+                self._register_tool("cleaning", meth, instance_required=True)
+        
+        # ─── Analysis ────────────────────────────────────────────────────────────
+        analyzer_methods = [
+            "get_dataset_overview",
+            "summary_stats",
+            "get_summary_narrative",
+            "compute_correlation",
+            "compute_pca",
+            "analyze_categorical",
+            "generate_llm_report",
+            "export_for_llm",
+        ]
+        
+        for meth_name in analyzer_methods:
+            meth = getattr(DataAnalyzer, meth_name, None)
+            if meth and callable(meth):
+                self._register_tool("analysis", meth, instance_required=True)
+        
+        # ─── Visualization ───────────────────────────────────────────────────────
+        viz_methods = [
+            "plot_histogram",
+            "plot_boxplot",
+            "plot_scatter",
+            "plot_bar",
+            "plot_line",
+            "plot_heatmap",
+            "plot_pie",
+            "plot_violin",
+            "plot_pca",
+            "create_dashboard",
+            "describe_chart",
+            "export_for_llm",
+        ]
+        
+        for meth_name in viz_methods:
+            meth = getattr(DataVisualizer, meth_name, None)
+            if meth and callable(meth):
+                self._register_tool("visualization", meth, instance_required=True)
+    
+    def list_tools(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Return list of available tools (optionally filtered by category)"""
+        result = []
+        for key, meta in sorted(self.tools.items()):
+            if category is None or key.startswith(category + "."):
+                result.append({
+                    "tool": key,
+                    "category": meta.category,
+                    "name": meta.name,
+                    "description": meta.description,
+                    "required_args": meta.required_args,
+                    "optional_args": meta.optional_args,
+                    "returns": meta.returns
+                })
+        return result
+    
+    def get_tool_info(self, tool_key: str) -> Optional[ToolMetadata]:
+        """Get full metadata for one tool"""
+        return self.tools.get(tool_key)
+    
+    def create_pipeline(self) -> Dict[str, Any]:
+        """Return a minimal pipeline-ready structure"""
+        return {
+            "cleaner": DataCleaner(),
+            "analyzer": None,   # needs data
+            "visualizer": None, # needs data
+            "current_df": None
+        }
+    
+    def print_registry_summary(self):
+        """Pretty-print overview of registered tools"""
+        from collections import defaultdict
+        by_cat = defaultdict(list)
+        for key in sorted(self.tools):
+            cat, name = key.split(".", 1)
+            by_cat[cat].append(name)
+        
+        print("┌──────────────────────────────────────────────────────────────┐")
+        print("│                  Registered Data Tools                       │")
+        print("├───────────────┬──────────────────────────────────────────────┤")
+        for cat, methods in by_cat.items():
+            print(f"│ {cat:13} │ {', '.join(methods[:3])} ... ({len(methods)}) │")
+        print("└───────────────┴──────────────────────────────────────────────┘")
+        print(f"Total tools registered: {len(self.tools)}")
+
+
+# Singleton / global access
+_tool_registry = DataToolRegistry()
+
+
+def get_registry() -> DataToolRegistry:
+    """Get the global tool registry instance"""
+    return _tool_registry
+
+
+if __name__ == "__main__":
+    registry = get_registry()
+    registry.print_registry_summary()
+    
+    print("\nExample: available cleaning tools:")
+    for t in registry.list_tools("cleaning")[:6]:
+        print(f"  • {t['tool']:35}  {t['description'][:58]}...")
