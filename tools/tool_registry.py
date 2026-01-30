@@ -1,126 +1,130 @@
 #!/usr/bin/env python3
 """
-Tool Registry for Data Processing Pipeline
-Exposes DataCleaner, DataAnalyzer, DataVisualizer in a discoverable, uniform way
-Designed for LLM agents, Streamlit apps, modular pipelines, auto-documentation
+Central Tool Registry for the Data Processing Suite
+Registers high-level callable methods from:
+  • DataCleaner
+  • DataAnalyzer
+  • DataVisualizer
+
+Version: 2025-style edition
 """
 
-from typing import Dict, Any, List, Optional, Callable, Union
+from __future__ import annotations
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Any, Callable, Union
 import inspect
 import pandas as pd
 
-# ─── Import your three main classes ──────────────────────────────────────────
-from data_cleaner import DataCleaner     # assuming file names / module structure
-from data_analyzer import DataAnalyzer
+# ─── Import the three core classes ───────────────────────────────────────────
+# Adjust import paths according to your actual file/module structure
+from data_cleaner   import DataCleaner
+from data_analyzer  import DataAnalyzer
 from data_visualizer import DataVisualizer
 
 
 @dataclass
-class ToolMetadata:
-    """Standardized metadata for each exposed method"""
-    category: str                   # "cleaning", "analysis", "visualization"
-    name: str                       # method name
-    description: str                # first line of docstring or custom
-    full_doc: str                   # complete docstring
-    signature: inspect.Signature
-    required_args: List[str]
-    optional_args: List[str]
-    returns: str                    # short description of return type
-    instance_required: bool = True  # whether you need an instance first
+class RegisteredTool:
+    """Metadata for one registered method"""
+    category: str                   # clean / analyze / visualize
+    method_name: str
+    short_description: str
+    full_docstring: str
+    required_parameters: List[str]
+    optional_parameters: List[str]
+    returns_dataframe: bool         # heuristic – helps agents decide chaining
+    instance_required: bool = True  # almost always True for these classes
 
 
-class DataToolRegistry:
+class ToolRegistry:
     """
-    Central registry of data processing tools based on:
-      • DataCleaner
-      • DataAnalyzer
-      • DataVisualizer
+    Centralized registry of data processing tools.
+    Makes methods discoverable and callable in a uniform way.
     """
-    
+
     def __init__(self):
-        self.tools: Dict[str, ToolMetadata] = {}
+        self.tools: Dict[str, RegisteredTool] = {}
         self._register_all()
-        
-    def _register_tool(self, category: str, func: Callable, instance_required: bool = True):
-        """Register one method with metadata"""
-        name = func.__name__
-        
-        doc = (func.__doc__ or "").strip()
-        first_line = doc.split("\n")[0].strip() if doc else "No description"
-        
-        sig = inspect.signature(func)
-        
-        required = []
-        optional = []
-        for param in sig.parameters.values():
-            if param.default is param.empty and param.name != "self":
-                required.append(param.name)
-            elif param.name != "self":
-                optional.append(param.name)
-                
-        returns = "DataFrame" if "-> pd.DataFrame" in str(func.__annotations__) else "various"
-        
-        meta = ToolMetadata(
-            category=category,
-            name=name,
-            description=first_line,
-            full_doc=doc,
-            signature=sig,
-            required_args=required,
-            optional_args=optional,
-            returns=returns,
-            instance_required=instance_required
-        )
-        
-        key = f"{category}.{name}"
-        self.tools[key] = meta
-    
+
+    def _register(self,
+                 category: str,
+                 cls: type,
+                 method_names: List[str]) -> None:
+        """Register selected methods from a class"""
+        for name in method_names:
+            if not hasattr(cls, name):
+                continue
+
+            func = getattr(cls, name)
+            if not callable(func):
+                continue
+
+            doc = (func.__doc__ or "").strip()
+            short = doc.split('\n', 1)[0].strip() if doc else "(no description)"
+
+            sig = inspect.signature(func)
+
+            required = []
+            optional = []
+            for param in sig.parameters.values():
+                if param.name == "self":
+                    continue
+                if param.default is param.empty:
+                    required.append(param.name)
+                else:
+                    optional.append(param.name)
+
+            returns_df = (
+                "pd.DataFrame" in str(func.__annotations__.get("return", "")) or
+                "-> pd.DataFrame" in doc or
+                "Figure" in str(func.__annotations__.get("return", "")) or
+                "plot" in name.lower()
+            )
+
+            tool_key = f"{category}.{name}"
+
+            self.tools[tool_key] = RegisteredTool(
+                category=category,
+                method_name=name,
+                short_description=short,
+                full_docstring=doc,
+                required_parameters=required,
+                optional_parameters=optional,
+                returns_dataframe=returns_df,
+                instance_required=True
+            )
+
     def _register_all(self):
-        """Register selected high-value / commonly used methods"""
-        
-        # ─── Cleaning ────────────────────────────────────────────────────────────
-        cleaner_methods = [
-            "load_data",
-            "get_data_quality_report",
-            "detect_duplicates",
-            "remove_duplicates",
-            "handle_missing_values",
-            "detect_outliers",
-            "handle_outliers",
-            "infer_and_convert_types",
-            "standardize_column_names",
-            "remove_constant_columns",
+        """Register the most useful / commonly chained methods"""
+
+        # ─── Cleaning ────────────────────────────────────────────────────────
+        self._register("clean", DataCleaner, [
+            "load",
+            "find_duplicates",
+            "drop_duplicates",
+            "impute_missing",
+            "detect_and_handle_outliers",
             "clean_text_columns",
+            "standardize_column_names",
+            "infer_and_convert_dtypes",
             "get_cleaning_summary",
-            "export_cleaned_data",
-            "export_for_llm",
-        ]
-        
-        for meth_name in cleaner_methods:
-            meth = getattr(DataCleaner, meth_name, None)
-            if meth and callable(meth):
-                self._register_tool("cleaning", meth, instance_required=True)
-        
-        # ─── Analysis ────────────────────────────────────────────────────────────
-        analyzer_methods = [
+        ])
+
+        # ─── Analysis ────────────────────────────────────────────────────────
+        self._register("analyze", DataAnalyzer, [
             "get_dataset_overview",
             "summary_stats",
             "get_summary_narrative",
             "compute_correlation",
             "compute_pca",
+            "perform_clustering",
+            "perform_regression",
+            "time_series_decomposition",
             "analyze_categorical",
             "generate_llm_report",
-            "export_for_llm",
-        ]
-        
-        for meth_name in analyzer_methods:
-            meth = getattr(DataAnalyzer, meth_name, None)
-            if meth and callable(meth):
-                self._register_tool("analysis", meth, instance_required=True)
-        
-        # ─── Visualization ───────────────────────────────────────────────────────
-        viz_methods = [
+        ])
+
+        # ─── Visualization ───────────────────────────────────────────────────
+        self._register("visualize", DataVisualizer, [
             "plot_histogram",
             "plot_boxplot",
             "plot_scatter",
@@ -129,76 +133,80 @@ class DataToolRegistry:
             "plot_heatmap",
             "plot_pie",
             "plot_violin",
-            "plot_pca",
+            "plot_pairplot",
+            "plot_3d_scatter",
+            "plot_pca_biplot",
+            "plot_time_series_decomp",
             "create_dashboard",
-            "describe_chart",
-            "export_for_llm",
-        ]
-        
-        for meth_name in viz_methods:
-            meth = getattr(DataVisualizer, meth_name, None)
-            if meth and callable(meth):
-                self._register_tool("visualization", meth, instance_required=True)
-    
-    def list_tools(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Return list of available tools (optionally filtered by category)"""
+            "save_figure",
+        ])
+
+    def list_tools(self,
+                  category: Optional[str] = None,
+                  returns_df_only: bool = False) -> List[Dict[str, Any]]:
+        """List available tools – filterable"""
         result = []
-        for key, meta in sorted(self.tools.items()):
-            if category is None or key.startswith(category + "."):
-                result.append({
-                    "tool": key,
-                    "category": meta.category,
-                    "name": meta.name,
-                    "description": meta.description,
-                    "required_args": meta.required_args,
-                    "optional_args": meta.optional_args,
-                    "returns": meta.returns
-                })
+        for key, tool in sorted(self.tools.items()):
+            if category and not key.startswith(f"{category}."):
+                continue
+            if returns_df_only and not tool.returns_dataframe:
+                continue
+
+            result.append({
+                "tool_key": key,
+                "category": tool.category,
+                "method": tool.method_name,
+                "description": tool.short_description,
+                "required": tool.required_parameters,
+                "optional": tool.optional_parameters,
+                "returns_dataframe": tool.returns_dataframe
+            })
         return result
-    
-    def get_tool_info(self, tool_key: str) -> Optional[ToolMetadata]:
+
+    def get_tool(self, tool_key: str) -> Optional[RegisteredTool]:
         """Get full metadata for one tool"""
         return self.tools.get(tool_key)
-    
-    def create_pipeline(self) -> Dict[str, Any]:
-        """Return a minimal pipeline-ready structure"""
+
+    def create_instances(self) -> Dict[str, Any]:
+        """Helper – create fresh instances (useful for pipelines)"""
         return {
-            "cleaner": DataCleaner(),
-            "analyzer": None,   # needs data
-            "visualizer": None, # needs data
-            "current_df": None
+            "cleaner":    DataCleaner(),
+            "analyzer":   None,   # usually needs data after cleaning
+            "visualizer": None,   # usually needs data
         }
-    
-    def print_registry_summary(self):
-        """Pretty-print overview of registered tools"""
+
+    def print_summary(self):
+        """Quick console overview"""
         from collections import defaultdict
-        by_cat = defaultdict(list)
+        groups = defaultdict(list)
+
         for key in sorted(self.tools):
             cat, name = key.split(".", 1)
-            by_cat[cat].append(name)
-        
-        print("┌──────────────────────────────────────────────────────────────┐")
-        print("│                  Registered Data Tools                       │")
-        print("├───────────────┬──────────────────────────────────────────────┤")
-        for cat, methods in by_cat.items():
-            print(f"│ {cat:13} │ {', '.join(methods[:3])} ... ({len(methods)}) │")
-        print("└───────────────┴──────────────────────────────────────────────┘")
-        print(f"Total tools registered: {len(self.tools)}")
+            groups[cat].append(name)
+
+        print("┌──────────────────────────────────────────────┐")
+        print("│            Registered Data Tools             │")
+        print("├──────────────┬───────────────────────────────┤")
+        for cat, methods in groups.items():
+            print(f"│ {cat:12} │ {len(methods):3d} methods                  │")
+            print(f"│              │ {', '.join(methods[:4])} ... │")
+        print("└──────────────┴───────────────────────────────┘")
+        print(f"Total registered tools: {len(self.tools)}")
 
 
-# Singleton / global access
-_tool_registry = DataToolRegistry()
+# Global singleton instance
+global_registry = ToolRegistry()
 
 
-def get_registry() -> DataToolRegistry:
-    """Get the global tool registry instance"""
-    return _tool_registry
+def get_tool_registry() -> ToolRegistry:
+    """Recommended way to access the registry"""
+    return global_registry
 
 
 if __name__ == "__main__":
-    registry = get_registry()
-    registry.print_registry_summary()
-    
-    print("\nExample: available cleaning tools:")
-    for t in registry.list_tools("cleaning")[:6]:
-        print(f"  • {t['tool']:35}  {t['description'][:58]}...")
+    registry = get_tool_registry()
+    registry.print_summary()
+
+    print("\nExample: top 6 cleaning tools")
+    for item in registry.list_tools("clean")[:6]:
+        print(f"  • {item['tool_key']:38}  {item['description'][:68]}...")
