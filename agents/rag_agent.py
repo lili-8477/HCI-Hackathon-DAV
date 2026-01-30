@@ -26,7 +26,7 @@ class RAGAgent:
     def __init__(self):
         """Initialize the RAG agent with vector store and LLM"""
         self.embeddings = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L6-v2",
+            model_name="BAAI/bge-base-en-v1.5",
             model_kwargs={'device': 'cpu'}
         )
         
@@ -94,9 +94,10 @@ INSTRUCTIONS:
 2. Generate clean, executable Python code that works with pandas DataFrames
 3. Use matplotlib and/or seaborn for visualizations
 4. If intermediate data is available, reference it in your code
-5. Always include proper imports and figure setup
+5. Do NOT include imports for pandas, numpy, matplotlib, or seaborn — they are already imported as pd, np, plt, sns
 6. Add comments explaining key steps
 7. Return the code in a markdown code block
+8. CRITICAL: The dataset is ALREADY loaded as a variable called 'df'. NEVER use pd.read_csv(), pd.read_excel(), or any file-loading function. Always use the 'df' variable directly. The DataState singleton is available as 'state' if you need to save figures or update the active dataframe.
 
 RESPONSE:"""
 

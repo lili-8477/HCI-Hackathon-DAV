@@ -197,6 +197,45 @@ def plot_time_series(date_column: str, value_column: str):
         return f"Error creating time series plot: {str(e)}"
 
 
+def plot_pie_chart(column_name: str, value_column: Optional[str] = None, agg_func: str = "sum"):
+    """Create a pie chart for categorical data."""
+    try:
+        state = DataState()
+        df = state.get_dataframe()
+
+        if column_name not in df.columns:
+            return f"Column '{column_name}' not found. Available columns: {', '.join(df.columns)}"
+
+        if value_column and value_column not in df.columns:
+            return f"Column '{value_column}' not found."
+
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        if value_column is None:
+            data = df[column_name].value_counts()
+            title = f"Distribution of {column_name}"
+        else:
+            if agg_func == "sum":
+                data = df.groupby(column_name)[value_column].sum()
+            elif agg_func == "mean":
+                data = df.groupby(column_name)[value_column].mean()
+            elif agg_func == "count":
+                data = df.groupby(column_name)[value_column].count()
+            else:
+                return "agg_func must be 'sum', 'mean', or 'count'"
+            title = f"{agg_func.capitalize()} of {value_column} by {column_name}"
+
+        ax.pie(data, labels=data.index, autopct='%1.1f%%', startangle=90)
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        ax.axis('equal')
+        plt.tight_layout()
+
+        _store_matplotlib_fig(fig)
+        return f"Pie chart '{title}' has been generated and is displayed below."
+    except Exception as e:
+        return f"Error creating pie chart: {str(e)}"
+
+
 def plot_box_plot(column_name: str, group_by: Optional[str] = None):
     """Create a box plot to show distribution and outliers."""
     try:

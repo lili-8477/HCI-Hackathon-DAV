@@ -5,6 +5,7 @@ Main Streamlit application entry point.
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import base64
 from pathlib import Path
 from utils.data_state import DataState
@@ -74,12 +75,6 @@ if 'messages' not in st.session_state:
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 
-if 'show_plot_dialog' not in st.session_state:
-    st.session_state.show_plot_dialog = False
-
-if 'latest_plots' not in st.session_state:
-    st.session_state.latest_plots = []
-
 if 'manager_agent' not in st.session_state:
     with st.spinner("Initializing AI agent..."):
         st.session_state.manager_agent = LangGraphManager()
@@ -134,6 +129,28 @@ if uploaded_file is not None:
             st.error(f"Error loading file: {str(e)}")
             st.stop()
 
+# Sidebar: Sample Datasets
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🧪 Sample Datasets")
+from utils.sample_datasets import SAMPLE_DATASETS
+dataset_name = st.sidebar.selectbox("Choose a sample dataset", [""] + list(SAMPLE_DATASETS.keys()))
+if dataset_name:
+    st.sidebar.caption(SAMPLE_DATASETS[dataset_name]["desc"])
+if st.sidebar.button("Load Sample", disabled=not dataset_name):
+    with st.spinner("Generating sample data..."):
+        df = SAMPLE_DATASETS[dataset_name]["fn"]()
+        state = DataState()
+        state.load_data(df, f"{dataset_name}.csv", f"{dataset_name}.csv")
+        profile = st.session_state.data_agent.analyze(df)
+        st.session_state.data_loaded = True
+        st.session_state.last_file_name = f"{dataset_name}.csv"
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"Loaded sample **{dataset_name}**\n\n{profile}",
+            "plots": [],
+        })
+        st.rerun()
+
 # Display data info in sidebar
 state = DataState()
 data_info = state.get_file_info()
@@ -169,23 +186,10 @@ st.sidebar.markdown("""
         Streamlit • LangChain • Ollama
     </p>
     <p style="color: #B8B8B8; font-size: 0.8rem; margin: 0.3rem 0;">
-        🤖 Model: <span style="color: #F7B801;">qwen3:8b</span>
+        🤖 Model: <span style="color: #F7B801;">qwen3:32b</span>
     </p>
 </div>
 """, unsafe_allow_html=True)
-
-
-# Plot dialog popup
-@st.dialog("📊 Visualization", width="large")
-def show_plot_popup(plot_images):
-    for img_bytes in plot_images:
-        st.image(img_bytes, use_container_width=True)
-
-
-# Check if we need to show the plot dialog
-if st.session_state.show_plot_dialog and st.session_state.latest_plots:
-    st.session_state.show_plot_dialog = False
-    show_plot_popup(st.session_state.latest_plots)
 
 
 # Main area
@@ -196,7 +200,22 @@ else:
     state = DataState()
     df = state.get_dataframe()
 
+    # Initialize operations log
+    if "data_operations" not in st.session_state:
+        st.session_state.data_operations = []
+
     with st.expander(f"🗂️ Table Preview  —  {df.shape[0]} rows × {df.shape[1]} columns", expanded=False):
+        # Show applied operations log
+        if st.session_state.data_operations:
+            st.caption("Applied operations: " + " → ".join(st.session_state.data_operations))
+
+        # Undo all button
+        if st.session_state.data_operations:
+            if st.button("↩ Undo All Changes", key="undo_all"):
+                state.df = state.get_intermediate("original").copy()
+                st.session_state.data_operations = []
+                st.rerun()
+
         col1, col2 = st.columns([1, 3])
         with col1:
             preview_rows = st.slider("Rows to show", min_value=5, max_value=min(200, len(df)), value=10, step=5)
@@ -208,11 +227,133 @@ else:
         else:
             st.info("Select at least one column to preview.")
 
+        # --- Data manipulation tabs ---
+        filter_tab, transform_tab, impute_tab = st.tabs(["🔍 Filter", "🔄 Transform", "🩹 Impute"])
+
+        with filter_tab:
+            fc1, fc2, fc3 = st.columns(3)
+            with fc1:
+                filter_col = st.selectbox("Column", df.columns.tolist(), key="filter_col")
+            with fc2:
+                filter_op = st.selectbox("Condition", ["==", "!=", ">", "<", ">=", "<=", "contains", "isin"], key="filter_op")
+            with fc3:
+                filter_val = st.text_input("Value", key="filter_val", help="For 'isin', use comma-separated values")
+
+            if st.button("Apply Filter", key="apply_filter"):
+                if filter_val.strip() == "":
+                    st.warning("Enter a value.")
+                else:
+                    try:
+                        col_series = df[filter_col]
+                        v = filter_val.strip()
+                        if filter_op == "contains":
+                            mask = col_series.astype(str).str.contains(v, case=False, na=False)
+                        elif filter_op == "isin":
+                            vals = [x.strip() for x in v.split(",")]
+                            # try numeric cast
+                            try:
+                                vals = [float(x) for x in vals]
+                            except ValueError:
+                                pass
+                            mask = col_series.isin(vals)
+                        else:
+                            # try numeric comparison
+                            try:
+                                v_cmp = float(v)
+                            except ValueError:
+                                v_cmp = v
+                            ops = {"==": "__eq__", "!=": "__ne__", ">": "__gt__", "<": "__lt__", ">=": "__ge__", "<=": "__le__"}
+                            mask = getattr(col_series, ops[filter_op])(v_cmp)
+                        state.df = df[mask].reset_index(drop=True)
+                        st.session_state.data_operations.append(f"Filter({filter_col} {filter_op} {filter_val})")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Filter error: {e}")
+
+        with transform_tab:
+            numeric_cols = df.select_dtypes(include="number").columns.tolist()
+            if not numeric_cols:
+                st.info("No numeric columns available.")
+            else:
+                tc1, tc2 = st.columns(2)
+                with tc1:
+                    trans_col = st.selectbox("Column", numeric_cols, key="trans_col")
+                with tc2:
+                    trans_op = st.selectbox("Operation", ["log", "normalize (0-1)", "standardize (z-score)", "round", "abs"], key="trans_op")
+
+                if st.button("Apply Transform", key="apply_transform"):
+                    try:
+                        series = df[trans_col]
+                        if trans_op == "log":
+                            state.df[trans_col] = np.log1p(series)
+                        elif trans_op == "normalize (0-1)":
+                            mn, mx = series.min(), series.max()
+                            state.df[trans_col] = (series - mn) / (mx - mn) if mx != mn else 0.0
+                        elif trans_op == "standardize (z-score)":
+                            state.df[trans_col] = (series - series.mean()) / series.std()
+                        elif trans_op == "round":
+                            state.df[trans_col] = series.round()
+                        elif trans_op == "abs":
+                            state.df[trans_col] = series.abs()
+                        st.session_state.data_operations.append(f"{trans_op}({trans_col})")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Transform error: {e}")
+
+        with impute_tab:
+            null_counts = df.isnull().sum()
+            cols_with_nulls = null_counts[null_counts > 0]
+            if cols_with_nulls.empty:
+                st.info("No missing values found.")
+            else:
+                st.dataframe(cols_with_nulls.rename("missing").to_frame(), use_container_width=True, height=150)
+                ic1, ic2 = st.columns(2)
+                with ic1:
+                    imp_col = st.selectbox("Column", cols_with_nulls.index.tolist(), key="imp_col")
+                with ic2:
+                    imp_strategy = st.selectbox("Strategy", ["drop rows", "mean", "median", "mode", "forward fill", "backward fill", "custom value"], key="imp_strategy")
+
+                custom_val = None
+                if imp_strategy == "custom value":
+                    custom_val = st.text_input("Custom fill value", key="imp_custom")
+
+                if st.button("Apply Imputation", key="apply_impute"):
+                    try:
+                        if imp_strategy == "drop rows":
+                            state.df = df.dropna(subset=[imp_col]).reset_index(drop=True)
+                        elif imp_strategy == "mean":
+                            state.df[imp_col] = df[imp_col].fillna(df[imp_col].mean())
+                        elif imp_strategy == "median":
+                            state.df[imp_col] = df[imp_col].fillna(df[imp_col].median())
+                        elif imp_strategy == "mode":
+                            state.df[imp_col] = df[imp_col].fillna(df[imp_col].mode().iloc[0])
+                        elif imp_strategy == "forward fill":
+                            state.df[imp_col] = df[imp_col].ffill()
+                        elif imp_strategy == "backward fill":
+                            state.df[imp_col] = df[imp_col].bfill()
+                        elif imp_strategy == "custom value":
+                            try:
+                                fill = float(custom_val)
+                            except (ValueError, TypeError):
+                                fill = custom_val
+                            state.df[imp_col] = df[imp_col].fillna(fill)
+                        st.session_state.data_operations.append(f"Impute {imp_col}({imp_strategy})")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Imputation error: {e}")
+
     st.markdown("---")
 
     # Display chat history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
+            # Show executed code in foldable expanders (before text)
+            for exe in message.get("tool_executions", []):
+                with st.expander(f"Step {exe['step']}: {exe['label']}", expanded=False):
+                    if exe.get("code"):
+                        st.code(exe["code"], language="python")
+                    if exe.get("result"):
+                        st.text(exe["result"])
             st.markdown(message["content"])
             # Show inline plots stored in message history
             for img_bytes in message.get("plots", []):
@@ -233,8 +374,19 @@ else:
 
         # Get response from manager agent
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                response = st.session_state.manager_agent.invoke(user_input)
+            from utils.streaming_handler import StreamlitStatusCallbackHandler
+            with st.status("Thinking...", expanded=True) as status:
+                handler = StreamlitStatusCallbackHandler(status)
+                response = st.session_state.manager_agent.invoke(user_input, callbacks=[handler])
+                status.update(label="Done", state="complete", expanded=False)
+
+            # Show executed code in foldable expanders
+            for exe in response.get("tool_executions", []):
+                with st.expander(f"Step {exe['step']}: {exe['label']}", expanded=False):
+                    if exe.get("code"):
+                        st.code(exe["code"], language="python")
+                    if exe.get("result"):
+                        st.text(exe["result"])
 
             st.markdown(response["text"])
 
@@ -245,15 +397,10 @@ else:
             for img_bytes in plot_images:
                 st.image(img_bytes, use_container_width=True)
 
-        # Save to message history (with plots)
+        # Save to message history (with plots and tool executions)
         st.session_state.messages.append({
             "role": "assistant",
             "content": response["text"],
             "plots": plot_images,
+            "tool_executions": response.get("tool_executions", []),
         })
-
-        # Trigger popup dialog if there are plots
-        if plot_images:
-            st.session_state.latest_plots = plot_images
-            st.session_state.show_plot_dialog = True
-            st.rerun()
