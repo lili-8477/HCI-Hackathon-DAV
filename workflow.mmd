@@ -1,0 +1,58 @@
+%%{init: {'theme': 'dark', 'themeVariables': {'fontSize': '16px'}}}%%
+
+flowchart TD
+    USER(["🧑 User Query"]):::user
+
+    USER --> MANAGER["ManagerAgent\nLangGraph ReAct"]:::agent
+    MANAGER --> SYSPROMPT["System Prompt\n+ DataState context"]:::agent
+    SYSPROMPT --> LLM["LLM · qwen3:32b"]:::llm
+
+    LLM --> DECISION{"Tool calls\nin response?"}:::decision
+
+    DECISION -- "No" --> RESPONSE["Final Response\nText + Plots + Trace"]:::response
+
+    DECISION -- "Yes" --> CLASSIFY{"Predefined\ntool fits?"}:::decision
+
+    CLASSIFY -- "Yes" --> TOOLNODE["ToolNode"]:::tool
+
+    TOOLNODE --> EXPLORE["Data Exploration\noverview · missing · stats\ncolumn_info · list_columns"]:::tool
+    TOOLNODE --> STATS["Statistical Analysis\ncorrelation · groupby\nttest · outliers"]:::tool
+    TOOLNODE --> MANIP["Data Manipulation\nfilter · select · pivot\ntransform · use_table"]:::tool
+    TOOLNODE --> VIZ["Visualization\nbar · pie · scatter · box\ndistribution · heatmap\ntime_series"]:::tool
+
+    EXPLORE --> RESULT["Tool Result"]:::tool
+    STATS --> RESULT
+    MANIP --> RESULT
+    VIZ --> RESULT
+
+    RESULT --> LLM
+
+    CLASSIFY -. "No tool fits\n⚡ Rule 11 Fallback" .-> FALLBACK
+
+    subgraph FALLBACK ["🧠 generate_and_run_code"]
+        RAG["RAGAgent\nRetrieve top-4 examples\nfrom FAISS"]:::fallback
+        GEN["LLM generates\nPython code"]:::fallback
+        SANITIZE["Sanitize\nStrip file-loading lines"]:::fallback
+        EXEC["Execute code\ndf · pd · np · plt · sns"]:::fallback
+        CAPTURE["Capture output\nstdout + figures → DataState"]:::fallback
+        RAG --> GEN --> SANITIZE --> EXEC --> CAPTURE
+    end
+
+    CAPTURE --> LLM
+
+    EXPLORE --> DS
+    STATS --> DS
+    MANIP --> DS
+    VIZ --> DS
+    CAPTURE --> DS
+
+    DS[("DataState\nSingleton")]:::datastate
+
+    classDef user fill:#F7B801,color:#000,stroke:#F7B801,font-weight:bold
+    classDef agent fill:#0077B6,color:#fff,stroke:#00B4D8,stroke-width:2px
+    classDef llm fill:#7209B7,color:#fff,stroke:#9D4EDD,stroke-width:2px
+    classDef decision fill:#2D3436,color:#fff,stroke:#00B4D8,stroke-width:2px
+    classDef tool fill:#006D77,color:#fff,stroke:#83C5BE
+    classDef response fill:#1B4332,color:#fff,stroke:#52B788
+    classDef datastate fill:#3A0CA3,color:#fff,stroke:#7209B7,stroke-width:2px
+    classDef fallback fill:#D90429,color:#fff,stroke:#EF233C,stroke-width:3px

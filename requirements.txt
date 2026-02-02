@@ -13,8 +13,16 @@ numpy==1.26.4
 matplotlib==3.9.3
 seaborn==0.13.2
 plotly==5.24.1
+kaleido
+
+# RAG & Vector Store
+faiss-cpu
+sentence-transformers
+
+# LangSmith (for monitoring)
+langsmith
 
 # Utilities
 python-dotenv==1.0.1
 pydantic==2.10.5
-kaleido
+

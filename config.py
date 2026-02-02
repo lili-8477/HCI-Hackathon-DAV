@@ -8,7 +8,7 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 VIZ_DIR = OUTPUT_DIR / "visualizations"
 
 # Ollama Config
-OLLAMA_MODEL = "qwen3:8b"
+OLLAMA_MODEL = "qwen3:32b"
 OLLAMA_TEMPERATURE = 0.1
 OLLAMA_NUM_PREDICT = 512
 

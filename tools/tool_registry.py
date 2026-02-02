@@ -4,7 +4,7 @@ Registers all tools and makes them available to the LangChain agent.
 """
 
 from langchain_core.tools import Tool
-from . import data_exploration, statistical_analysis, visualization
+from . import data_exploration, statistical_analysis, data_manipulation, visualization
 
 
 def get_all_tools():
@@ -54,9 +54,46 @@ def get_all_tools():
             description="Perform group-by aggregation on the data. Input format: 'group_column,agg_column,agg_func' where agg_func can be 'mean', 'sum', 'count', 'min', 'max', or 'std'. Example: 'region,revenue,sum'"
         ),
         Tool(
+            name="perform_ttest",
+            func=lambda input_str: _parse_ttest_input(input_str),
+            description="Perform a t-test on a numeric column. Input format: 'column,group_column' for independent two-sample t-test, 'column,group_column,paired' for paired t-test, or 'column,test_value,one_sample' for one-sample t-test. The group_column must have exactly 2 unique values for independent/paired tests. Example: 'score,treatment' or 'weight,0,one_sample'"
+        ),
+        Tool(
             name="detect_outliers",
             func=statistical_analysis.detect_outliers,
             description="Detect outliers in a numeric column using IQR method. Input: column_name as string."
+        ),
+
+        # Data Manipulation Tools
+        Tool(
+            name="filter_rows",
+            func=data_manipulation.filter_rows,
+            description="Filter rows using a pandas query expression. Input: query string (e.g. 'price > 100' or 'region == \"West\"'). Saves result as an intermediate table."
+        ),
+        Tool(
+            name="select_columns",
+            func=data_manipulation.select_columns,
+            description="Select specific columns from the dataset. Input: comma-separated column names (e.g. 'name,price,region'). Saves result as an intermediate table."
+        ),
+        Tool(
+            name="pivot_table",
+            func=data_manipulation.pivot_table,
+            description="Create a pivot table. Input format: 'index,values,agg_func' (e.g. 'region,revenue,sum'). Saves result as an intermediate table."
+        ),
+        Tool(
+            name="transform_column",
+            func=data_manipulation.transform_column,
+            description="Transform a column's values. Input format: 'column,operation' where operation is 'log', 'normalize', 'round:N', 'upper', or 'lower'. Example: 'price,log'. Saves result as an intermediate table."
+        ),
+        Tool(
+            name="use_table",
+            func=data_manipulation.use_table,
+            description="Set a named intermediate table as the active dataset for all tools. Input: table name (e.g. 'filtered_1'). Use 'list_tables' to see available tables."
+        ),
+        Tool(
+            name="list_tables",
+            func=lambda _="": data_manipulation.list_tables(),
+            description="List all saved intermediate tables with their shapes. No input required."
         ),
 
         # Visualization Tools
@@ -81,6 +118,11 @@ def get_all_tools():
             description="Create a bar chart for categorical data. Input format: 'column_name' for counts, or 'column_name,value_column,agg_func' for aggregations. Example: 'region' or 'region,revenue,sum'"
         ),
         Tool(
+            name="plot_pie_chart",
+            func=lambda input_str: _parse_pie_chart_input(input_str),
+            description="Create a pie chart for categorical data. Input format: 'column_name' for value counts, or 'column_name,value_column,agg_func' for aggregations. Example: 'region' or 'region,revenue,sum'"
+        ),
+        Tool(
             name="plot_box_plot",
             func=lambda input_str: _parse_box_plot_input(input_str),
             description="Create a box plot showing distribution and outliers. Input format: 'column_name' or 'column_name,group_by'. Example: 'price' or 'price,region'"
@@ -91,6 +133,13 @@ def get_all_tools():
             description="Create a time series line plot. Input format: 'date_column,value_column'. Example: 'date,revenue'"
         ),
     ]
+
+    # Add RAG tools for code generation and memory
+    try:
+        from .rag_tools import get_rag_tools
+        tools.extend(get_rag_tools())
+    except ImportError as e:
+        print(f"Warning: RAG tools not available: {e}")
 
     return tools
 
@@ -152,6 +201,20 @@ def _parse_bar_chart_input(input_str: str):
         return f"Error parsing input: {str(e)}"
 
 
+def _parse_pie_chart_input(input_str: str):
+    """Parse input for plot_pie_chart tool"""
+    try:
+        parts = [p.strip() for p in input_str.split(',')]
+        if len(parts) == 1:
+            return visualization.plot_pie_chart(parts[0])
+        elif len(parts) == 3:
+            return visualization.plot_pie_chart(parts[0], parts[1], parts[2])
+        else:
+            return "Invalid input format. Expected: 'column_name' or 'column_name,value_column,agg_func'"
+    except Exception as e:
+        return f"Error parsing input: {str(e)}"
+
+
 def _parse_box_plot_input(input_str: str):
     """Parse input for plot_box_plot tool"""
     try:
@@ -174,5 +237,19 @@ def _parse_time_series_input(input_str: str):
             return visualization.plot_time_series(parts[0], parts[1])
         else:
             return "Invalid input format. Expected: 'date_column,value_column'"
+    except Exception as e:
+        return f"Error parsing input: {str(e)}"
+
+
+def _parse_ttest_input(input_str: str):
+    """Parse input for perform_ttest tool"""
+    try:
+        parts = [p.strip() for p in input_str.split(',')]
+        if len(parts) == 2:
+            return statistical_analysis.perform_ttest(parts[0], parts[1])
+        elif len(parts) == 3:
+            return statistical_analysis.perform_ttest(parts[0], parts[1], parts[2])
+        else:
+            return "Invalid input format. Expected: 'column,group_column' or 'column,group_column,test_type'"
     except Exception as e:
         return f"Error parsing input: {str(e)}"
